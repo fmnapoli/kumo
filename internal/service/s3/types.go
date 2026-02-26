@@ -10,7 +10,6 @@ import (
 type Bucket struct {
 	Name         string
 	CreationDate time.Time
-	Region       string
 }
 
 // Object represents an S3 object.
@@ -48,9 +47,9 @@ type Buckets struct {
 
 // BucketInfo represents bucket information in XML response.
 type BucketInfo struct {
-	CreationDate string `xml:"CreationDate"`
 	Name         string `xml:"Name"`
-	BucketRegion string `xml:"BucketRegion"`
+	CreationDate string `xml:"CreationDate"`
+	BucketArn    string `xml:"BucketArn"`
 }
 
 // ListBucketResult is the response for ListObjectsV2.
