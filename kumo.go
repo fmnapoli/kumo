@@ -13,6 +13,7 @@ package kumo
 import (
 	"net/http/httptest"
 
+	"github.com/sivchari/kumo/internal/bootstrap"
 	"github.com/sivchari/kumo/internal/server"
 	_ "github.com/sivchari/kumo/internal/service/acm"
 	_ "github.com/sivchari/kumo/internal/service/amplify"
@@ -108,6 +109,7 @@ func NewServer() *Server {
 	cfg := server.DefaultConfig()
 	cfg.LogLevel = 100 // Suppress all logs in test mode.
 	internalSrv := server.New(cfg)
+	bootstrap.Wire(internalSrv.Registry())
 
 	ts := httptest.NewServer(internalSrv.Handler())
 

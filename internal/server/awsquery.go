@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"sort"
@@ -199,6 +200,10 @@ func formToJSON(form map[string][]string) []byte {
 	// Handle nested attributes (like Attributes.entry.N.key/value).
 	result = flattenAttributes(result)
 
+	// Handle MessageAttributes.entry.N.Name/Value.DataType/Value.StringValue/Value.BinaryValue
+	// (AWS Query format used by SNS Publish / SQS SendMessage).
+	result = flattenMessageAttributes(result)
+
 	jsonBytes, _ := json.Marshal(result)
 
 	return jsonBytes
@@ -287,6 +292,106 @@ func buildAttributesMap(attrs map[string]string, result map[string]any) {
 	if len(attrMap) > 0 {
 		result["Attributes"] = attrMap
 	}
+}
+
+// flattenMessageAttributes converts AWS Query-protocol MessageAttributes entries
+// into the JSON shape consumed by services. Input keys:
+//
+//	MessageAttributes.entry.<N>.Name
+//	MessageAttributes.entry.<N>.Value.DataType
+//	MessageAttributes.entry.<N>.Value.StringValue
+//	MessageAttributes.entry.<N>.Value.BinaryValue
+//
+// Output:
+//
+//	"MessageAttributes": { "<Name>": { "DataType": ..., "StringValue": ..., "BinaryValue": ... } }
+func flattenMessageAttributes(data map[string]any) map[string]any {
+	const prefix = "MessageAttributes.entry."
+
+	type entry struct {
+		name        string
+		dataType    string
+		stringValue string
+		binaryValue string
+		hasField    bool
+	}
+
+	entries := make(map[string]*entry)
+	result := make(map[string]any, len(data))
+
+	for key, value := range data {
+		if !strings.HasPrefix(key, prefix) {
+			result[key] = value
+
+			continue
+		}
+
+		rest := key[len(prefix):]
+		idx, field, ok := strings.Cut(rest, ".")
+		if !ok {
+			continue
+		}
+
+		strValue, ok := value.(string)
+		if !ok {
+			// Non-string values are not expected here; fall back to fmt.
+			strValue = fmt.Sprintf("%v", value)
+		}
+
+		e, exists := entries[idx]
+		if !exists {
+			e = &entry{}
+			entries[idx] = e
+		}
+
+		switch field {
+		case "Name":
+			e.name = strValue
+			e.hasField = true
+		case "Value.DataType":
+			e.dataType = strValue
+			e.hasField = true
+		case "Value.StringValue":
+			e.stringValue = strValue
+			e.hasField = true
+		case "Value.BinaryValue":
+			e.binaryValue = strValue
+			e.hasField = true
+		}
+	}
+
+	if len(entries) == 0 {
+		return result
+	}
+
+	attrs := make(map[string]map[string]any, len(entries))
+
+	for _, e := range entries {
+		if !e.hasField || e.name == "" {
+			continue
+		}
+
+		attr := map[string]any{}
+		if e.dataType != "" {
+			attr["DataType"] = e.dataType
+		}
+
+		if e.stringValue != "" {
+			attr["StringValue"] = e.stringValue
+		}
+
+		if e.binaryValue != "" {
+			attr["BinaryValue"] = e.binaryValue
+		}
+
+		attrs[e.name] = attr
+	}
+
+	if len(attrs) > 0 {
+		result["MessageAttributes"] = attrs
+	}
+
+	return result
 }
 
 // writeQueryError writes an AWS Query protocol error response.

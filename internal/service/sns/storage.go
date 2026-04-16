@@ -19,9 +19,13 @@ const (
 	defaultAccountID = "000000000000"
 )
 
-// SQSPublisher is an interface for publishing messages to SQS.
+// SQSPublisher delivers a message from SNS to a subscribed SQS queue.
+// Implementations own ARN→URL resolution (SNS stores the subscription
+// endpoint as an ARN). When rawDelivery is true, body is the raw published
+// message and attrs should be forwarded as native SQS message attributes;
+// otherwise body is the SNS notification envelope and attrs is ignored.
 type SQSPublisher interface {
-	PublishToSQS(ctx context.Context, queueURL, messageBody string, attributes map[string]string) error
+	PublishToSQS(ctx context.Context, queueARN, body string, attrs map[string]MessageAttribute, rawDelivery bool) error
 }
 
 // Storage defines the SNS storage interface.
@@ -338,24 +342,39 @@ func (m *MemoryStorage) Publish(ctx context.Context, topicARN, message, subject 
 	return messageID, nil
 }
 
-// deliverMessage delivers a message to a subscription.
-func (m *MemoryStorage) deliverMessage(ctx context.Context, sub *Subscription, message, subject, messageID string, _ map[string]MessageAttribute) error {
-	switch sub.Protocol {
-	case "sqs":
-		if m.SqsPublisher != nil {
-			attrs := map[string]string{
-				"MessageId": messageID,
-			}
-			if subject != "" {
-				attrs["Subject"] = subject
-			}
-
-			if err := m.SqsPublisher.PublishToSQS(ctx, sub.Endpoint, message, attrs); err != nil {
-				return fmt.Errorf("failed to publish to SQS: %w", err)
-			}
-
+// deliverMessage delivers a message to a subscription, honoring FilterPolicy
+// and (for the sqs protocol) wrapping the payload in an SNS notification
+// envelope unless RawMessageDelivery=true.
+func (m *MemoryStorage) deliverMessage(ctx context.Context, sub *Subscription, message, subject, messageID string, attributes map[string]MessageAttribute) error {
+	if policy := sub.SubscriptionAttributes["FilterPolicy"]; policy != "" {
+		if !MatchesFilterPolicy(policy, attributes) {
 			return nil
 		}
+	}
+
+	switch sub.Protocol {
+	case "sqs":
+		if m.SqsPublisher == nil {
+			return nil
+		}
+
+		rawDelivery := sub.SubscriptionAttributes["RawMessageDelivery"] == "true"
+		body := message
+
+		if !rawDelivery {
+			envelope, err := buildSNSEnvelope(sub.TopicARN, messageID, message, subject, attributes, time.Now())
+			if err != nil {
+				return fmt.Errorf("failed to build SNS envelope: %w", err)
+			}
+
+			body = envelope
+		}
+
+		if err := m.SqsPublisher.PublishToSQS(ctx, sub.Endpoint, body, attributes, rawDelivery); err != nil {
+			return fmt.Errorf("failed to publish to SQS: %w", err)
+		}
+
+		return nil
 	case "http", "https":
 		// HTTP delivery not implemented in emulator.
 		return nil
@@ -363,8 +382,6 @@ func (m *MemoryStorage) deliverMessage(ctx context.Context, sub *Subscription, m
 		// Other protocols not implemented.
 		return nil
 	}
-
-	return nil
 }
 
 // ListSubscriptions returns all subscriptions.

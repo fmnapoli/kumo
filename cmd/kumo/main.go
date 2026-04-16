@@ -4,9 +4,9 @@ package main
 import (
 	"log"
 
+	"github.com/sivchari/kumo/internal/bootstrap"
 	"github.com/sivchari/kumo/internal/server"
-	// Register services via init().
-	_ "github.com/sivchari/kumo/internal/service/acm"
+	_ "github.com/sivchari/kumo/internal/service/acm" // Services self-register via init().
 	_ "github.com/sivchari/kumo/internal/service/amplify"
 	_ "github.com/sivchari/kumo/internal/service/apigateway"
 	_ "github.com/sivchari/kumo/internal/service/appmesh"
@@ -87,6 +87,7 @@ import (
 func main() {
 	cfg := server.DefaultConfig()
 	srv := server.New(cfg)
+	bootstrap.Wire(srv.Registry())
 
 	if err := srv.Run(); err != nil {
 		log.Fatal(err)

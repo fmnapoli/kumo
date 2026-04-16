@@ -56,6 +56,13 @@ func (s *Service) TargetPrefix() string {
 // JSONProtocol is a marker method that indicates SQS uses AWS JSON 1.0 protocol.
 func (s *Service) JSONProtocol() {}
 
+// Storage returns the SQS storage.
+// Exposed so cross-service integrations (e.g. SNS → SQS delivery) can send
+// messages without going through the HTTP layer.
+func (s *Service) Storage() Storage {
+	return s.storage
+}
+
 // Close saves the storage state if persistence is enabled.
 func (s *Service) Close() error {
 	if c, ok := s.storage.(io.Closer); ok {

@@ -299,3 +299,31 @@ type TopicError struct {
 func (e *TopicError) Error() string {
 	return e.Message
 }
+
+// snsEnvelope is the JSON body SNS wraps around a published message when
+// delivering to an SQS subscription without RawMessageDelivery=true.
+//
+// Field order and JSON tags match the AWS contract documented at
+// https://docs.aws.amazon.com/sns/latest/dg/sns-sqs-as-subscriber.html.
+// Signature/SigningCertURL/UnsubscribeURL are emitted as empty strings so
+// consumers that perform a presence check still receive valid JSON fields;
+// emulator deployments never sign messages.
+type snsEnvelope struct {
+	Type              string                       `json:"Type"`
+	MessageID         string                       `json:"MessageId"`
+	TopicARN          string                       `json:"TopicArn"`
+	Subject           string                       `json:"Subject,omitempty"`
+	Message           string                       `json:"Message"`
+	Timestamp         string                       `json:"Timestamp"`
+	SignatureVersion  string                       `json:"SignatureVersion"`
+	Signature         string                       `json:"Signature"`
+	SigningCertURL    string                       `json:"SigningCertURL"`
+	UnsubscribeURL    string                       `json:"UnsubscribeURL"`
+	MessageAttributes map[string]envelopeAttribute `json:"MessageAttributes,omitempty"`
+}
+
+// envelopeAttribute mirrors the AWS format: {"Type": "<DataType>", "Value": "..."}.
+type envelopeAttribute struct {
+	Type  string `json:"Type"`
+	Value string `json:"Value"`
+}
